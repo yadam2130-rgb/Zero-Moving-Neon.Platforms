@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <title>Zero: Moving Neon Platforms</title>
+    <style>
+        body { margin: 0; background: #050111; display: flex; justify-content: center; align-items: center; height: 100vh; color: #fff; font-family: 'Courier New', monospace; overflow: hidden; }
+        canvas { border: 3px solid #00f7ff; background: #0a0a1a; cursor: crosshair; }
+        #ui { position: absolute; top: 20px; width: 760px; display: flex; justify-content: space-between; font-size: 22px; font-weight: bold; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>المرحلة: <span id="level">1</span></div>
+        <div>النقاط: <span id="score">0</span></div>
+        <div id="bossUI" style="display:none; color: #ff0055;">طاقة الزعيم: <span id="bossHealth">15</span></div>
+    </div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let score = 0, gameActive = true, bossLevelCount = 1;
+        const themes = ['#00f7ff', '#f700ff', '#00ff44', '#ffff00'];
+        let currentTheme = themes[0];
+        const keys = {};
+
+        const zero = { x: 50, y: 325, width: 25, height: 45, dy: 0, jumpForce: -15, grounded: false };
+        const boss = { active: false, x: 650, y: 100, size: 80, health: 15, dy: 3 };
+        
+        let bullets = [], viruses = [], platforms = [];
+
+        // --- إنشاء المنصات مع خاصية الحركة ---
+        function createPlatforms() {
+            platforms = [
+                { x: 100, y: 280, w: 120, h: 10, speed: 2, range: 150, startX: 100 },
+                { x: 400, y: 200, w: 120, h: 10, speed: -3, range: 200, startX: 400 },
+                { x: 200, y: 120, w: 120, h: 10, speed: 2.5, range: 250, startX: 200 }
+            ];
+        }
+        createPlatforms();
+
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        window.addEventListener('keydown', e => { if (e.code === 'KeyX' || e.code === 'Enter') shoot(); });
+        window.addEventListener('mousedown', () => { if(gameActive) shoot(); });
+
+        function shoot() {
+            bullets.push({ x: zero.x + 25, y: zero.y + 15, w: 15, h: 6, speed: 14 });
+        }
+
+        function checkCollision(obj1, obj2) {
+            return obj1.x < obj2.x + (obj2.w || obj2.size) &&
+                   obj1.x + (obj1.w || obj1.width) > obj2.x &&
+                   obj1.y < obj2.y + (obj2.h || obj2.size) &&
+                   obj1.y + (obj1.h || obj1.height) > obj2.y;
+        }
+
+        function update() {
+            if (!gameActive) return;
+
+            // حركة اللاعب
+            if ((keys['Space'] || keys['ArrowUp']) && zero.grounded) { 
+                zero.dy = zero.jumpForce; 
+                zero.grounded = false; 
+            }
+            if (keys['ArrowLeft'] && zero.x > 0) zero.x -= 6;
+            if (keys['ArrowRight'] && zero.x < canvas.width - zero.width) zero.x += 6;
+            
+            zero.dy += 0.8; 
+            zero.y += zero.dy;
+
+            // تحديث حركة المنصات أفقياً
+            platforms.forEach(p => {
+                p.x += p.speed;
+                // ارتداد المنصة عند وصولها لنهاية المدى
+                if (Math.abs(p.x - p.startX) > p.range) {
+                    p.speed *= -1;
+                }
+            });
+
+            // منطق الوقوف على المنصات والأرضية
+            let onMovingPlatform = false;
+            
+            if (zero.y + zero.height > 370) {
+                zero.y = 370 - zero.height;
+                zero.dy = 0;
+                zero.grounded = true;
+            } else {
+                zero.grounded = false;
+                platforms.forEach(p => {
+                    if (zero.x + zero.width > p.x && 
+                        zero.x < p.x + p.w && 
+                        zero.y + zero.height > p.y && 
+                        zero.y + zero.height < p.y + p.h + 10 && 
+                        zero.dy >= 0) { 
+                            zero.y = p.y - zero.height;
+                            zero.dy = 0;
+                            zero.grounded = true;
+                            // جعل اللاعب يتحرك مع المنصة
+                            zero.x += p.speed; 
+                            onMovingPlatform = true;
+                    }
+                });
+            }
+
+            // تحديث الرصاص والوحوش
+            bullets = bullets.filter(b => {
+                b.x += b.speed;
+                let hit = false;
+                viruses.forEach((v, index) => {
+                    if (checkCollision(b, v)) {
+                        viruses.splice(index, 1);
+                        score += 20;
+                        document.getElementById('score').innerText = score;
+                        hit = true;
+                    }
+                });
+                if (boss.active && checkCollision(b, boss)) {
+                    boss.health--;
+                    document.getElementById('bossHealth').innerText = boss.health;
+                    if (boss.health <= 0) {
+                        boss.active = false;
+                        bossLevelCount++;
+                        score += 100;
+                        document.getElementById('bossUI').style.display = "none";
+                        document.getElementById('level').innerText = bossLevelCount;
+                        currentTheme = themes[bossLevelCount % themes.length];
+                        // تسريع المنصات في المستوى الجديد
+                        platforms.forEach(plat => { plat.speed *= 1.2; });
+                    }
+                    hit = true;
+                }
+                return !hit && b.x < canvas.width;
+            });
+
+            if (!boss.active && Math.random() < 0.02) viruses.push({ x: canvas.width, y: 345, size: 25, speed: 3 + bossLevelCount });
+            viruses.forEach((v, index) => {
+                v.x -= v.speed;
+                if (checkCollision(zero, v)) { gameActive = false; alert("انتهت اللعبة! الوحوش نالت منك."); location.reload(); }
+                if (v.x < -30) viruses.splice(index, 1);
+            });
+
+            if (score >= bossLevelCount * 250 && !boss.active) {
+                boss.active = true;
+                document.getElementById('bossUI').style.display = "block";
+                boss.health = 15 + (bossLevelCount * 5);
+            }
+
+            if (boss.active) {
+                boss.y += boss.dy;
+                if (boss.y < 20 || boss.y > 280) boss.dy *= -1;
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // الأرضية
+            ctx.strokeStyle = currentTheme; ctx.lineWidth = 2;
+            ctx.strokeRect(-5, 370, canvas.width + 10, 40);
+
+            // رسم المنصات المتحركة
+            ctx.shadowBlur = 10; ctx.shadowColor = currentTheme;
+            ctx.fillStyle = currentTheme + "66"; 
+            platforms.forEach(p => {
+                ctx.fillRect(p.x, p.y, p.w, p.h);
+                ctx.strokeRect(p.x, p.y, p.w, p.h);
+            });
+
+            // رسم البطل
+            ctx.shadowBlur = 15; ctx.shadowColor = currentTheme; ctx.strokeStyle = currentTheme;
+            ctx.strokeRect(zero.x + 5, zero.y, 15, 15);
+            ctx.strokeRect(zero.x + 7, zero.y + 15, 11, 20);
+
+            // الرصاص والوحوش
+            ctx.fillStyle = "#fff"; ctx.shadowColor = "#fff";
+            bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+            ctx.fillStyle = "#ff0055"; ctx.shadowColor = "#ff0055";
+            viruses.forEach(v => ctx.fillRect(v.x, v.y, v.size, v.size));
+
+            if (boss.active) {
+                ctx.lineWidth = 5; ctx.strokeStyle = currentTheme;
+                ctx.strokeRect(boss.x, boss.y, boss.size, boss.size);
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        gameLoop();
+    </script>
+</body>
+</html>
